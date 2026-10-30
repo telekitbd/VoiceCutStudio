@@ -28,7 +28,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        state = AppState(applicationContext)
+        state = AppState.get(applicationContext)
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) {}
+                .launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         handle(intent)
         setContent { VoiceCutTheme { App(state) } }
     }

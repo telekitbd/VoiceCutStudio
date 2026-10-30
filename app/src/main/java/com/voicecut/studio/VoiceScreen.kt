@@ -124,7 +124,7 @@ fun VoiceScreen(s: AppState) {
         }
         Text(
             "TXT, SRT or JSON files exported from the Transcribe tab work, and so does any plain text file. " +
-                "You can also use the transcript you just made.",
+                "To use a transcript from the Transcribe tab, press “Create audio from this transcript” there.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         importError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }

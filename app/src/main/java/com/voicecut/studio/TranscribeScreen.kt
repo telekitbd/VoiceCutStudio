@@ -75,10 +75,10 @@ fun TranscribeScreen(s: AppState) {
                 }
                 var segs = Transcriber.transcribe(ctx, s.assemblyKey, source, sp, code, expected) { update(it) }
                 if (sp && detect && segs.isNotEmpty()) segs = GenderDetector.detect(ctx, source, segs) { update(it) }
-                s.segments = segs
-                s.speakerGender.clear()
-                s.originalSegments = null
-                s.scriptName = baseName(displayName(ctx, uri))
+                s.clip.stop()
+                s.transcript = segs
+                s.transcriptMedia = uri
+                s.transcriptName = baseName(displayName(ctx, uri))
                 if (segs.isEmpty()) JobState.Failed("No speech was detected in this file.")
                 else JobState.Done("Transcript ready · ${segs.size} segments")
             } finally {
@@ -88,9 +88,9 @@ fun TranscribeScreen(s: AppState) {
     }
     JobStatus(s.transcribeJob)
 
-    if (s.segments.isNotEmpty()) {
-        val segs = s.segments
-        val base = s.scriptName.ifBlank { "transcript" }
+    if (s.transcript.isNotEmpty()) {
+        val segs = s.transcript
+        val base = s.transcriptName.ifBlank { "transcript" }
         val names = segs.map { it.speaker }.distinct()
         if (names.any { Gender.fromLabel(it) != null }) SectionCard("Who is who") {
             Text(
@@ -101,7 +101,20 @@ fun TranscribeScreen(s: AppState) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SpeakerChip(n)
                     Spacer(Modifier.weight(1f))
-                    OutlinedButton(onClick = { s.segments = Gender.flip(s.segments, n) }) {
+                    // Listen to this person's longest turn to check whether it is a man or a woman.
+                    val sample = segs.filter { it.speaker == n && it.endMs > it.startMs }.maxByOrNull { it.endMs - it.startMs }
+                    val media = s.transcriptMedia
+                    if (sample != null && media != null) {
+                        val key = "spk:$n"
+                        val playing = s.clip.playingKey == key
+                        FilledTonalButton(onClick = { s.clip.toggle(ctx, media, sample.startMs, sample.endMs, key) }) {
+                            Icon(if (playing) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (playing) "Stop" else "Play")
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    OutlinedButton(onClick = { s.transcript = Gender.flip(s.transcript, n) }) {
                         Text(if (Gender.fromLabel(n) == Gender.FEMALE) "Switch to Male" else "Switch to Female")
                     }
                 }
@@ -113,6 +126,14 @@ fun TranscribeScreen(s: AppState) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SpeakerChip(it.speaker)
                         Text(Exporters.ts(it.startMs), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        val media = s.transcriptMedia
+                        if (media != null && it.endMs > it.startMs) {
+                            val key = "seg:${it.startMs}:${it.speaker}"
+                            val playing = s.clip.playingKey == key
+                            IconButton(onClick = { s.clip.toggle(ctx, media, it.startMs, it.endMs, key) }, modifier = Modifier.size(28.dp)) {
+                                Icon(if (playing) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, if (playing) "Stop" else "Play", Modifier.size(20.dp))
+                            }
+                        }
                     }
                     Text(it.text, style = MaterialTheme.typography.bodyMedium)
                 }
@@ -142,7 +163,13 @@ fun TranscribeScreen(s: AppState) {
             }
             exported?.let { (msg, uri, mime) -> ResultCard(msg, uri, mime) }
         }
-        PrimaryButton("Create audio from this transcript", Icons.Rounded.RecordVoiceOver) { s.tab = 2 }
+        PrimaryButton("Create audio from this transcript", Icons.Rounded.RecordVoiceOver) {
+            s.segments = s.transcript
+            s.originalSegments = null
+            s.speakerGender.clear()
+            s.scriptName = s.transcriptName
+            s.tab = 2
+        }
     }
 }
 
