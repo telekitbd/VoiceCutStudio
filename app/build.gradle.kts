@@ -11,11 +11,27 @@ android {
         applicationId = "com.voicecut.studio"
         minSdk = 29
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.3.0"
+        // Must grow with every build so Android accepts it as an update. GitHub's run number does that.
+        versionCode = 100 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0)
+        versionName = "1.3.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
-    buildTypes { release { isMinifyEnabled = false } }
+    // One fixed signing key for every build, so a new APK installs over the old one without uninstalling.
+    signingConfigs {
+        create("voicecut") {
+            storeFile = file("keystore/voicecut.jks")
+            storePassword = "voicecut123"
+            keyAlias = "voicecut"
+            keyPassword = "voicecut123"
+        }
+    }
+    buildTypes {
+        debug { signingConfig = signingConfigs.getByName("voicecut") }
+        release {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("voicecut")
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

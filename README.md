@@ -28,6 +28,12 @@ Open **Settings** (gear icon). Enter a key and press **Save**; it stays on the d
 2. **Actions → Build APK → Run workflow** (also runs on push)
 3. Download `VoiceCutStudio-debug-apk` from **Artifacts** and install it
 
+## Updating without uninstalling
+Every build is signed with the same key (`app/keystore/voicecut.jks`) and its version number grows with each GitHub run, so a new APK installs over the old one and keeps your settings and API keys.
+- Keep the `app/keystore` folder in the repo.
+- Only the first install after switching to this key needs one uninstall of the old app (it was signed with a different key).
+- This key is for personal use. If you ever publish the app, create a private key and keep it out of the repo.
+
 ## Limitations
 - MP3 uses the bundled LAME encoder (`app/src/main/cpp`, built with the NDK; LGPL/GPL licensed code)
 - Transcription and cloud voices need internet
