@@ -20,18 +20,19 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-data class VoiceOption(val id: String, val label: String, val lang: String? = null)
+data class VoiceOption(val id: String, val label: String, val lang: String? = null, val gender: String? = null)
 
 /** Android's built-in text-to-speech: free, offline, voices depend on the phone. */
 class DeviceTts private constructor(private val tts: TextToSpeech) {
 
     fun shutdown() = runCatching { tts.shutdown() }
 
-    suspend fun synth(ctx: Context, text: String, voiceId: String?, speed: Float): Pcm = withContext(Dispatchers.IO) {
+    suspend fun synth(ctx: Context, text: String, voiceId: String?, speed: Float, pitch: Float = 1f): Pcm = withContext(Dispatchers.IO) {
         if (voiceId != null) {
             runCatching { tts.voices?.firstOrNull { it.name == voiceId } }.getOrNull()?.let { tts.voice = it }
         }
         tts.setSpeechRate(speed)
+        tts.setPitch(pitch)
         val bos = ByteArrayOutputStream()
         var rate = 22050
         var ch = 1
@@ -79,6 +80,24 @@ class DeviceTts private constructor(private val tts: TextToSpeech) {
     }
 
     companion object {
+        private val knownFemale = setOf("sfg", "iob", "iog", "tpc", "tpf")
+        private val knownMale = setOf("iol", "iom", "tpd")
+
+        /** Best effort: Google voice names end in a code like "en-us-x-tpd-local"; some codes reveal the gender. */
+        fun guessGender(name: String): String? {
+            val n = name.lowercase()
+            if ("female" in n) return Gender.FEMALE
+            if ("male" in n) return Gender.MALE
+            val code = Regex("-x-([a-z]{3})").find(n)?.groupValues?.get(1) ?: return null
+            return when {
+                code in knownFemale -> Gender.FEMALE
+                code in knownMale -> Gender.MALE
+                code.endsWith("f") -> Gender.FEMALE
+                code.endsWith("m") -> Gender.MALE
+                else -> null
+            }
+        }
+
         suspend fun create(ctx: Context): DeviceTts = withContext(Dispatchers.Main) {
             suspendCancellableCoroutine<DeviceTts> { cont ->
                 var ref: TextToSpeech? = null
@@ -103,7 +122,7 @@ class DeviceTts private constructor(private val tts: TextToSpeech) {
                     .map {
                         val tag = it.name.substringAfter("-x-", it.name)
                             .removeSuffix("-local").removeSuffix("-network").replace('#', ' ')
-                        VoiceOption(it.name, "${it.locale.displayName} · $tag", it.locale.language)
+                        VoiceOption(it.name, "${it.locale.displayName} · $tag", it.locale.language, guessGender(it.name))
                     }
             } finally {
                 d.shutdown()
@@ -114,8 +133,14 @@ class DeviceTts private constructor(private val tts: TextToSpeech) {
 
 /** OpenAI text-to-speech (needs an API key). Returns 24 kHz mono PCM. */
 object CloudTts {
+    private val female = setOf("alloy", "coral", "nova", "sage", "shimmer")
     val voices = listOf("alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer")
-        .map { VoiceOption(it, it.replaceFirstChar { c -> c.uppercase() }) }
+        .map {
+            VoiceOption(
+                it, it.replaceFirstChar { c -> c.uppercase() } + if (it in female) " (female)" else " (male)",
+                gender = if (it in female) Gender.FEMALE else Gender.MALE
+            )
+        }
 
     const val MODEL_NATURAL = "gpt-4o-mini-tts"
     const val MODEL_STANDARD = "tts-1"
@@ -189,7 +214,10 @@ object ElevenLabs {
             val arr = JSONObject(body).optJSONArray("voices") ?: return@use emptyList<VoiceOption>()
             (0 until arr.length()).map {
                 val v = arr.getJSONObject(it)
-                VoiceOption(v.getString("voice_id"), v.optString("name", "Voice ${it + 1}"))
+                val g = v.optJSONObject("labels")?.optString("gender", "")?.lowercase()
+                val gender = when (g) { "male" -> Gender.MALE; "female" -> Gender.FEMALE; else -> null }
+                val name = v.optString("name", "Voice ${it + 1}")
+                VoiceOption(v.getString("voice_id"), if (gender != null) "$name ($gender)" else name, gender = gender)
             }
         }
     }

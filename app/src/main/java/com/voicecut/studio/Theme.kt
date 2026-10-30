@@ -79,6 +79,10 @@ private val speakerPalette = listOf(
 )
 
 fun speakerColor(name: String): Color {
+    when (Gender.fromLabel(name)) {
+        Gender.MALE -> return Color(0xFF3B82F6)
+        Gender.FEMALE -> return Color(0xFFEC4899)
+    }
     val n = name.filter { it.isDigit() }.toIntOrNull() ?: (name.hashCode() and 0xFF)
     return speakerPalette[(n + speakerPalette.size - 1).mod(speakerPalette.size)]
 }

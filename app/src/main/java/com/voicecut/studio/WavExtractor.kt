@@ -14,7 +14,8 @@ import java.nio.ByteOrder
 
 /** Decodes the first audio track to 16-bit PCM and writes a .wav file. */
 object WavExtractor {
-    suspend fun extract(ctx: Context, src: Uri, out: File) = withContext(Dispatchers.IO) {
+    /** [maxMs] stops decoding after that much audio (used when only a sample is needed). */
+    suspend fun extract(ctx: Context, src: Uri, out: File, maxMs: Long = Long.MAX_VALUE) = withContext(Dispatchers.IO) {
         val ex = MediaExtractor()
         ex.setDataSource(ctx, src, null)
         val idx = (0 until ex.trackCount).firstOrNull {
@@ -61,6 +62,8 @@ object WavExtractor {
                         total += info.size
                         codec.releaseOutputBuffer(o, false)
                         if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
+                        val bytesPerSecond = sampleRate.toLong() * channels * 2
+                        if (maxMs != Long.MAX_VALUE && total * 1000 >= maxMs * bytesPerSecond) outputDone = true
                     } else if (o == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                         val nf = codec.outputFormat
                         sampleRate = nf.getInteger(MediaFormat.KEY_SAMPLE_RATE)

@@ -44,6 +44,7 @@ fun VoiceScreen(s: AppState) {
                 require(segs.isNotEmpty()) { "No text found in this file" }
                 s.segments = segs
                 s.originalSegments = null
+                s.speakerGender.clear()
                 s.scriptName = baseName(name)
                 importError = null
             }.onFailure { importError = it.userMessage() }
@@ -77,11 +78,33 @@ fun VoiceScreen(s: AppState) {
     val engineKey = engine
     val speakers = s.segments.map { it.speaker }.distinct()
 
+    /** Male / female for a speaker: the manual choice, otherwise what the label says ("Male", "ছেলে", "Woman"…). */
+    fun genderOf(speaker: String): String? = s.speakerGender[speaker] ?: Gender.fromLabel(speaker)
+
     fun voiceFor(speaker: String): String? {
         s.voiceChoices["$engineKey:$speaker"]?.takeIf { id -> voices.any { it.id == id } }?.let { return it }
         if (voices.isEmpty()) return null
+        // A man gets a male voice and a woman a female one (when the voice list says which is which).
+        val g = genderOf(speaker)
+        if (g != null) {
+            val same = voices.filter { it.gender == g }
+            if (same.isNotEmpty()) {
+                val idx = speakers.filter { genderOf(it) == g }.indexOf(speaker).coerceAtLeast(0)
+                return same[idx % same.size].id
+            }
+        }
         val pool = voices
         return pool[speakers.indexOf(speaker).coerceAtLeast(0) % pool.size].id
+    }
+
+    /** Device voices often do not say male/female. If the voice does not fit, or all speakers share one voice, shift the pitch. */
+    fun pitchFor(speaker: String): Float {
+        if (engine != "device") return 1f
+        val g = genderOf(speaker) ?: return 1f
+        val voiceGender = voices.firstOrNull { it.id == voiceFor(speaker) }?.gender
+        val needsShift = if (voiceGender != null) voiceGender != g
+        else voices.map { it.id }.distinct().size < 2 && speakers.mapNotNull { genderOf(it) }.distinct().size > 1
+        return if (!needsShift) 1f else if (g == Gender.MALE) 0.78f else 1.22f
     }
 
     ScreenIntro("Create audio", "Turn a transcript, or any text, into a Bengali, Hindi or English voice-over.")
@@ -119,6 +142,13 @@ fun VoiceScreen(s: AppState) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             SpeakerChip(seg.speaker)
                             Spacer(Modifier.weight(1f))
+                            listOf("Male", "Female").forEach { who ->
+                                if (Gender.fromLabel(seg.speaker) != Gender.fromLabel(who)) {
+                                    TextButton(onClick = { s.segments = s.segments.toMutableList().also { it[i] = seg.copy(speaker = who) } }) {
+                                        Text("→ $who")
+                                    }
+                                }
+                            }
                             IconButton(onClick = { s.segments = s.segments.toMutableList().also { it.removeAt(i) } }) {
                                 Icon(Icons.Rounded.Delete, "Delete line", Modifier.size(20.dp))
                             }
@@ -225,8 +255,28 @@ fun VoiceScreen(s: AppState) {
                 }
             }
         }
-        if (voices.isNotEmpty()) speakers.forEach { sp ->
-            DropdownField("Voice for $sp", voices, voiceFor(sp), { s.voiceChoices["$engineKey:$sp"] = it })
+        if (voices.isNotEmpty()) {
+            Text(
+                "Each speaker is matched to a male or female voice automatically. Tap Male / Female to change who is who.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            speakers.forEach { sp ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SpeakerChip(sp)
+                    Spacer(Modifier.weight(1f))
+                    listOf(Gender.MALE to "Male", Gender.FEMALE to "Female").forEach { (g, label) ->
+                        FilterChip(
+                            selected = genderOf(sp) == g,
+                            onClick = {
+                                s.speakerGender[sp] = g
+                                s.voiceChoices.remove("$engineKey:$sp")
+                            },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+                DropdownField("Voice for $sp", voices, voiceFor(sp), { s.voiceChoices["$engineKey:$sp"] = it })
+            }
         }
         if (engine == "device" || (engine == "openai" && !natural)) {
             Text("Speed ${String.format(Locale.US, "%.2f", speed)}×", style = MaterialTheme.typography.labelLarge)
@@ -250,6 +300,7 @@ fun VoiceScreen(s: AppState) {
     PrimaryButton("Generate audio", Icons.Rounded.RecordVoiceOver, canRun) {
         val tgt = target; val method = trMethod
         val chosen = speakers.associateWith { voiceFor(it) }
+        val pitches = speakers.associateWith { pitchFor(it) }
         val eng = engine; val sp = speed
         val openAiKey = s.openAiKey; val elKey = s.elevenKey
         val openAiModel = if (natural) CloudTts.MODEL_NATURAL else CloudTts.MODEL_STANDARD
@@ -275,7 +326,7 @@ fun VoiceScreen(s: AppState) {
                     val pcm = when (eng) {
                         "openai" -> CloudTts.synth(openAiKey, openAiModel, v ?: "alloy", seg.text, sp)
                         "eleven" -> ElevenLabs.synth(elKey, elModel, v ?: error("Pick an ElevenLabs voice"), seg.text)
-                        else -> device!!.synth(ctx, seg.text, v, sp)
+                        else -> device!!.synth(ctx, seg.text, v, sp, pitches[seg.speaker] ?: 1f)
                     }
                     writer.append(pcm)
                     if (i < segs.size - 1) writer.silence(pause)

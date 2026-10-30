@@ -72,6 +72,7 @@ class AppState(context: Context) {
     var originalSegments by mutableStateOf<List<Segment>?>(null) // kept so a translation can be undone
     var generatedAudio by mutableStateOf<Uri?>(null)
     val voiceChoices = mutableStateMapOf<String, String>()
+    val speakerGender = mutableStateMapOf<String, String>() // manual male/female choice per speaker name
 
     // Saved API keys
     var assemblyKey by mutableStateOf(prefs.getString("aai_key", "") ?: "")

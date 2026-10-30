@@ -26,6 +26,7 @@ fun TranscribeScreen(s: AppState) {
     var lang by rememberSaveable { mutableStateOf("auto") }
     var count by rememberSaveable { mutableStateOf("0") }
     var optimize by rememberSaveable { mutableStateOf(true) }
+    var detectGender by rememberSaveable { mutableStateOf(true) }
     var exported by remember { mutableStateOf<Triple<String, Uri, String>?>(null) }
 
     ScreenIntro("Transcribe", "Turn speech into text with timestamps and separate speakers.")
@@ -39,6 +40,10 @@ fun TranscribeScreen(s: AppState) {
         if (speakers) DropdownField(
             "Number of speakers", speakerCounts, count, { count = it }
         )
+        if (speakers) SwitchRow(
+            "Detect male / female", "Names each voice Male or Female by listening to its pitch instead of Speaker 1, 2. Free, done on your phone.",
+            detectGender
+        ) { detectGender = it }
         DropdownField("Spoken language", spokenLanguages, lang, { lang = it })
         SwitchRow("Extract audio first", "Smaller upload. Falls back to the original file if needed.", optimize) { optimize = it }
     }
@@ -48,7 +53,7 @@ fun TranscribeScreen(s: AppState) {
         s.media != null && s.assemblyKey.isNotBlank() && !s.transcribeJob.busy
     ) {
         val uri = s.media ?: return@PrimaryButton
-        val opt = optimize; val sp = speakers
+        val opt = optimize; val sp = speakers; val detect = detectGender
         val code = lang.takeIf { it != "auto" }; val expected = count.toIntOrNull()?.takeIf { it > 0 }
         exported = null
         s.transcribeJob.start("Preparing…") {
@@ -68,8 +73,10 @@ fun TranscribeScreen(s: AppState) {
                         f.delete() // unsupported locally: upload the original, the server accepts most formats
                     }
                 }
-                val segs = Transcriber.transcribe(ctx, s.assemblyKey, source, sp, code, expected) { update(it) }
+                var segs = Transcriber.transcribe(ctx, s.assemblyKey, source, sp, code, expected) { update(it) }
+                if (sp && detect && segs.isNotEmpty()) segs = GenderDetector.detect(ctx, source, segs) { update(it) }
                 s.segments = segs
+                s.speakerGender.clear()
                 s.originalSegments = null
                 s.scriptName = baseName(displayName(ctx, uri))
                 if (segs.isEmpty()) JobState.Failed("No speech was detected in this file.")
@@ -84,6 +91,22 @@ fun TranscribeScreen(s: AppState) {
     if (s.segments.isNotEmpty()) {
         val segs = s.segments
         val base = s.scriptName.ifBlank { "transcript" }
+        val names = segs.map { it.speaker }.distinct()
+        if (names.any { Gender.fromLabel(it) != null }) SectionCard("Who is who") {
+            Text(
+                "Voices were told apart by pitch. If one is wrong, switch it here.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            names.forEach { n ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SpeakerChip(n)
+                    Spacer(Modifier.weight(1f))
+                    OutlinedButton(onClick = { s.segments = Gender.flip(s.segments, n) }) {
+                        Text(if (Gender.fromLabel(n) == Gender.FEMALE) "Switch to Male" else "Switch to Female")
+                    }
+                }
+            }
+        }
         SectionCard("Transcript") {
             segs.take(200).forEach {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
