@@ -28,15 +28,23 @@ fun SettingsScreen(s: AppState) {
         onSave = s::saveAssemblyKey
     )
     ApiKeyCard(
+        title = "ElevenLabs · cloud voices (optional)",
+        description = "Best choice for Bengali and 70+ languages. Free accounts can use the default voices through the API.",
+        linkLabel = "Get a key at elevenlabs.io",
+        url = "https://elevenlabs.io/app/settings/api-keys",
+        saved = s.elevenKey,
+        onSave = s::saveElevenKey
+    )
+    ApiKeyCard(
         title = "OpenAI · cloud voices (optional)",
-        description = "Only for natural-sounding cloud voices. Device voices need no key.",
+        description = "Optional English-focused cloud voices. Device voices need no key.",
         linkLabel = "Get a key at platform.openai.com",
         url = "https://platform.openai.com/api-keys",
         saved = s.openAiKey,
         onSave = s::saveOpenAiKey
     )
     SectionCard("Privacy & files") {
-        Text("• Audio you transcribe is uploaded to AssemblyAI. Text for cloud voices is sent to OpenAI.", style = MaterialTheme.typography.bodyMedium)
+        Text("• Audio you transcribe is uploaded to AssemblyAI. Text for cloud voices is sent to ElevenLabs or OpenAI.", style = MaterialTheme.typography.bodyMedium)
         Text("• Everything you create is saved in Downloads/VoiceCut.", style = MaterialTheme.typography.bodyMedium)
         Text("• Keys are excluded from device backups.", style = MaterialTheme.typography.bodyMedium)
     }

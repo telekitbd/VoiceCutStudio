@@ -23,13 +23,16 @@ import java.util.Locale
 @Composable
 fun VoiceScreen(s: AppState) {
     val ctx = LocalContext.current
-    var cloud by rememberSaveable { mutableStateOf(false) }
-    var m4a by rememberSaveable { mutableStateOf(false) }
+    var engine by rememberSaveable { mutableStateOf("device") } // device | eleven | openai
+    var outFmt by rememberSaveable { mutableStateOf("wav") }      // wav | m4a | mp3
+    var elevenModel by rememberSaveable { mutableStateOf(ElevenLabs.MODEL_V3) }
     var speed by rememberSaveable { mutableFloatStateOf(1f) }
     var gap by rememberSaveable { mutableFloatStateOf(400f) }
     var natural by rememberSaveable { mutableStateOf(true) }
     var importError by remember { mutableStateOf<String?>(null) }
     var deviceVoices by remember { mutableStateOf<List<VoiceOption>?>(null) }
+    var elevenVoices by remember { mutableStateOf<List<VoiceOption>?>(null) }
+    var elevenError by remember { mutableStateOf<String?>(null) }
 
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
@@ -44,20 +47,32 @@ fun VoiceScreen(s: AppState) {
         }
     }
 
-    LaunchedEffect(cloud) {
-        if (!cloud && deviceVoices == null) {
+    LaunchedEffect(engine) {
+        if (engine == "device" && deviceVoices == null) {
             deviceVoices = try { DeviceTts.listVoices(ctx) } catch (e: CancellationException) { throw e } catch (e: Exception) { emptyList() }
         }
     }
+    LaunchedEffect(engine, s.elevenKey) {
+        if (engine == "eleven" && s.elevenKey.isNotBlank()) {
+            elevenError = null
+            elevenVoices = try { ElevenLabs.listVoices(s.elevenKey) } catch (e: CancellationException) { throw e } catch (e: Exception) {
+                elevenError = e.userMessage(); emptyList()
+            }
+        }
+    }
 
-    val voices: List<VoiceOption> = if (cloud) CloudTts.voices else deviceVoices.orEmpty()
-    val engineKey = if (cloud) "cloud" else "device"
+    val voices: List<VoiceOption> = when (engine) {
+        "openai" -> CloudTts.voices
+        "eleven" -> elevenVoices.orEmpty()
+        else -> deviceVoices.orEmpty()
+    }
+    val engineKey = engine
     val speakers = s.segments.map { it.speaker }.distinct()
 
     fun voiceFor(speaker: String): String? {
         s.voiceChoices["$engineKey:$speaker"]?.takeIf { id -> voices.any { it.id == id } }?.let { return it }
         if (voices.isEmpty()) return null
-        val pool = if (cloud) voices else voices.filter { it.label.startsWith(Locale.getDefault().displayLanguage, true) }
+        val pool = if (engine != "device") voices else voices.filter { it.label.startsWith(Locale.getDefault().displayLanguage, true) }
             .ifEmpty { voices }
         return pool[speakers.indexOf(speaker).coerceAtLeast(0) % pool.size].id
     }
@@ -115,31 +130,46 @@ fun VoiceScreen(s: AppState) {
     // 2. Voice
     SectionCard("2 · Voice") {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            listOf(false to "On-device (free)", true to "Cloud (OpenAI)").forEachIndexed { i, (c, label) ->
-                SegmentedButton(selected = cloud == c, onClick = { cloud = c }, shape = SegmentedButtonDefaults.itemShape(i, 2)) { Text(label) }
+            listOf("device" to "Device", "eleven" to "ElevenLabs", "openai" to "OpenAI").forEachIndexed { i, (k, label) ->
+                SegmentedButton(selected = engine == k, onClick = { engine = k }, shape = SegmentedButtonDefaults.itemShape(i, 3)) { Text(label) }
             }
         }
-        if (cloud && s.openAiKey.isBlank()) {
-            NoticeCard("Cloud voices need an OpenAI API key.", "Settings") { s.showSettings = true }
-        }
-        if (!cloud) {
-            Text(
+        when (engine) {
+            "device" -> Text(
                 if (deviceVoices == null) "Loading voices…"
                 else if (voices.isEmpty()) "No voices found. Install a text-to-speech engine in Android settings."
-                else "Pick voices that match the language of your text.",
+                else "Free and offline. Pick voices that match the language of your text.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        } else {
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                listOf(true to "Natural", false to "Standard").forEachIndexed { i, (n, label) ->
-                    SegmentedButton(selected = natural == n, onClick = { natural = n }, shape = SegmentedButtonDefaults.itemShape(i, 2)) { Text(label) }
+            "eleven" -> {
+                if (s.elevenKey.isBlank()) NoticeCard("ElevenLabs voices need an API key.", "Settings") { s.showSettings = true }
+                else {
+                    DropdownField("Model", ElevenLabs.models, elevenModel, { elevenModel = it })
+                    Text(
+                        when {
+                            elevenError != null -> elevenError!!
+                            elevenVoices == null -> "Loading your voices…"
+                            voices.isEmpty() -> "No voices found in your ElevenLabs account."
+                            else -> "Use v3 for Bengali. Voices come from your ElevenLabs account."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (elevenError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            else -> {
+                if (s.openAiKey.isBlank()) NoticeCard("OpenAI voices need an API key.", "Settings") { s.showSettings = true }
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    listOf(true to "Natural", false to "Standard").forEachIndexed { i, (n, label) ->
+                        SegmentedButton(selected = natural == n, onClick = { natural = n }, shape = SegmentedButtonDefaults.itemShape(i, 2)) { Text(label) }
+                    }
                 }
             }
         }
         if (voices.isNotEmpty()) speakers.forEach { sp ->
             DropdownField("Voice for $sp", voices, voiceFor(sp), { s.voiceChoices["$engineKey:$sp"] = it })
         }
-        if (!cloud || !natural) {
+        if (engine == "device" || (engine == "openai" && !natural)) {
             Text("Speed ${String.format(Locale.US, "%.2f", speed)}×", style = MaterialTheme.typography.labelLarge)
             Slider(value = speed, onValueChange = { speed = it }, valueRange = 0.5f..1.5f)
         }
@@ -150,32 +180,37 @@ fun VoiceScreen(s: AppState) {
     // 3. Output
     SectionCard("3 · Output") {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            listOf(false to "WAV", true to "M4A").forEachIndexed { i, (m, label) ->
-                SegmentedButton(selected = m4a == m, onClick = { m4a = m }, shape = SegmentedButtonDefaults.itemShape(i, 2)) { Text(label) }
+            listOf("wav" to "WAV", "mp3" to "MP3", "m4a" to "M4A").forEachIndexed { i, (k, label) ->
+                SegmentedButton(selected = outFmt == k, onClick = { outFmt = k }, shape = SegmentedButtonDefaults.itemShape(i, 3)) { Text(label) }
             }
         }
     }
 
-    val canRun = s.segments.any { it.text.isNotBlank() } && voices.isNotEmpty() && !s.voiceJob.busy &&
-        (!cloud || s.openAiKey.isNotBlank())
+    val keyOk = when (engine) { "eleven" -> s.elevenKey.isNotBlank(); "openai" -> s.openAiKey.isNotBlank(); else -> true }
+    val canRun = s.segments.any { it.text.isNotBlank() } && voices.isNotEmpty() && !s.voiceJob.busy && keyOk
     PrimaryButton("Generate audio", Icons.Rounded.RecordVoiceOver, canRun) {
         val segs = s.segments.filter { it.text.isNotBlank() }
         val chosen = speakers.associateWith { voiceFor(it) }
-        val isCloud = cloud; val key = s.openAiKey; val sp = speed
-        val model = if (natural) CloudTts.MODEL_NATURAL else CloudTts.MODEL_STANDARD
-        val pause = gap.toInt(); val asM4a = m4a
+        val eng = engine; val sp = speed
+        val openAiKey = s.openAiKey; val elKey = s.elevenKey
+        val openAiModel = if (natural) CloudTts.MODEL_NATURAL else CloudTts.MODEL_STANDARD
+        val elModel = elevenModel
+        val pause = gap.toInt(); val fmt = outFmt
         s.voiceJob.start("Preparing voices…") {
             val stamp = System.nanoTime()
             val wav = File(ctx.cacheDir, "voice_$stamp.wav")
             val writer = PcmWriter(wav)
             var device: DeviceTts? = null
             try {
-                if (!isCloud) device = DeviceTts.create(ctx)
+                if (eng == "device") device = DeviceTts.create(ctx)
                 segs.forEachIndexed { i, seg ->
                     update("Speaking line ${i + 1} of ${segs.size}…", i / segs.size.toFloat())
                     val v = chosen[seg.speaker]
-                    val pcm = if (isCloud) CloudTts.synth(key, model, v ?: "alloy", seg.text, sp)
-                    else device!!.synth(ctx, seg.text, v, sp)
+                    val pcm = when (eng) {
+                        "openai" -> CloudTts.synth(openAiKey, openAiModel, v ?: "alloy", seg.text, sp)
+                        "eleven" -> ElevenLabs.synth(elKey, elModel, v ?: error("Pick an ElevenLabs voice"), seg.text)
+                        else -> device!!.synth(ctx, seg.text, v, sp)
+                    }
                     writer.append(pcm)
                     if (i < segs.size - 1) writer.silence(pause)
                 }
@@ -187,19 +222,30 @@ fun VoiceScreen(s: AppState) {
             }
 
             val base = (s.scriptName.ifBlank { "voiceover" }) + "_voice"
+            var encoded: File? = null
             try {
-                val (src, name, mime) = if (asM4a) {
-                    update("Encoding M4A…")
-                    val out = File(ctx.cacheDir, "voice_$stamp.m4a")
-                    MediaProcessor.extractAudio(ctx, Uri.fromFile(wav), out)
-                    Triple(out, "$base.m4a", "audio/mp4")
-                } else Triple(wav, "$base.wav", "audio/wav")
+                val (src, name, mime) = when (fmt) {
+                    "m4a" -> {
+                        update("Encoding M4A…")
+                        val out = File(ctx.cacheDir, "voice_$stamp.m4a")
+                        encoded = out
+                        MediaProcessor.extractAudio(ctx, Uri.fromFile(wav), out)
+                        Triple(out, "$base.m4a", "audio/mp4")
+                    }
+                    "mp3" -> {
+                        update("Encoding MP3…")
+                        val out = File(ctx.cacheDir, "voice_$stamp.mp3")
+                        encoded = out
+                        Mp3.encodeWav(wav, out, 128) { update("Encoding MP3… ${(it * 100).toInt()}%", it) }
+                        Triple(out, "$base.mp3", "audio/mpeg")
+                    }
+                    else -> Triple(wav, "$base.wav", "audio/wav")
+                }
                 val saved = saveFile(ctx, src, name, mime)
-                src.delete()
                 s.generatedAudio = saved
                 JobState.Done("Saved $name to Downloads/VoiceCut", saved, mime)
             } finally {
-                wav.delete()
+                wav.delete(); encoded?.delete()
             }
         }
     }

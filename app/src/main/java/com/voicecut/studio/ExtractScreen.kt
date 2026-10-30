@@ -16,47 +16,58 @@ import java.io.File
 @Composable
 fun ExtractScreen(s: AppState) {
     val ctx = LocalContext.current
-    var wav by rememberSaveable { mutableStateOf(false) }
+    var format by rememberSaveable { mutableStateOf("m4a") }
 
-    ScreenIntro("Extract audio", "Pull the sound out of any video, or convert an audio file to M4A or WAV.")
+    ScreenIntro("Extract audio", "Pull the sound out of any video, or convert an audio file to MP3, M4A or WAV.")
     MediaPickerCard("Import a video or audio file", s.media, { s.media = it; s.extractJob.clear() }, { s.media = null })
 
     SectionCard("Output format") {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            listOf(false to "M4A · AAC", true to "WAV · lossless").forEachIndexed { i, (isWav, label) ->
+            listOf("mp3" to "MP3", "m4a" to "M4A", "wav" to "WAV").forEachIndexed { i, (k, label) ->
                 SegmentedButton(
-                    selected = wav == isWav, onClick = { wav = isWav },
-                    shape = SegmentedButtonDefaults.itemShape(i, 2)
+                    selected = format == k, onClick = { format = k },
+                    shape = SegmentedButtonDefaults.itemShape(i, 3)
                 ) { Text(label) }
             }
         }
         Text(
-            if (wav) "Uncompressed, large files. Best for editing."
-            else "Small files, good quality. Plays everywhere.",
+            when (format) {
+                "mp3" -> "192 kbps. Plays on every device and app."
+                "wav" -> "Uncompressed, large files. Best for editing."
+                else -> "Small files, good quality (AAC)."
+            },
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 
     PrimaryButton("Extract audio", Icons.Rounded.GraphicEq, s.media != null && !s.extractJob.busy) {
         val uri = s.media ?: return@PrimaryButton
-        val asWav = wav
+        val fmt = format
         s.extractJob.start("Preparing…") {
             val base = baseName(displayName(ctx, uri))
             val stamp = System.nanoTime()
 
-            suspend fun viaWav(): JobState {
+            // Decode to WAV (anything the phone can play), optionally encode to MP3.
+            suspend fun viaWav(asMp3: Boolean): JobState {
                 update("Decoding audio…")
-                val f = File(ctx.cacheDir, "extract_$stamp.wav")
+                val wav = File(ctx.cacheDir, "extract_$stamp.wav")
+                val mp3 = File(ctx.cacheDir, "extract_$stamp.mp3")
                 try {
-                    WavExtractor.extract(ctx, uri, f)
-                    val saved = saveFile(ctx, f, "$base.wav", "audio/wav")
-                    return JobState.Done("Saved $base.wav to Downloads/VoiceCut", saved, "audio/wav")
+                    WavExtractor.extract(ctx, uri, wav)
+                    return if (asMp3) {
+                        update("Encoding MP3…")
+                        Mp3.encodeWav(wav, mp3, 192) { update("Encoding MP3… ${(it * 100).toInt()}%", it) }
+                        JobState.Done("Saved $base.mp3 to Downloads/VoiceCut", saveFile(ctx, mp3, "$base.mp3", "audio/mpeg"), "audio/mpeg")
+                    } else {
+                        JobState.Done("Saved $base.wav to Downloads/VoiceCut", saveFile(ctx, wav, "$base.wav", "audio/wav"), "audio/wav")
+                    }
                 } finally {
-                    f.delete()
+                    wav.delete(); mp3.delete()
                 }
             }
 
-            if (asWav) return@start viaWav()
+            if (fmt == "wav") return@start viaWav(false)
+            if (fmt == "mp3") return@start viaWav(true)
             val f = File(ctx.cacheDir, "extract_$stamp.m4a")
             try {
                 update("Extracting audio…")
@@ -67,13 +78,14 @@ fun ExtractScreen(s: AppState) {
                 throw e
             } catch (e: Exception) {
                 update("M4A isn't possible for this file, switching to WAV…")
-                viaWav()
+                viaWav(false)
             } finally {
                 f.delete()
             }
         }
     }
     JobStatus(s.extractJob)
+    CutSection(s, format)
     Text(
         "Formats are limited by what your phone can decode. If a file fails here, the Transcribe tab still accepts almost any format.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant

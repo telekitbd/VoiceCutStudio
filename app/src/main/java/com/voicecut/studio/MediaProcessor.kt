@@ -45,6 +45,15 @@ object MediaProcessor {
         run(ctx, out, onProgress) { it.start(item, out.absolutePath) }
     }
 
+    /** Cuts [startMs, endMs) out of any audio/video file into an .m4a file. */
+    suspend fun cutAudio(ctx: Context, src: Uri, out: File, startMs: Long, endMs: Long, onProgress: (Int) -> Unit = {}) {
+        val media = MediaItem.Builder().setUri(src).setClippingConfiguration(
+            MediaItem.ClippingConfiguration.Builder().setStartPositionMs(startMs).setEndPositionMs(endMs).build()
+        ).build()
+        val item = EditedMediaItem.Builder(media).setRemoveVideo(true).build()
+        run(ctx, out, onProgress) { it.start(item, out.absolutePath) }
+    }
+
     /** Video -> same video without sound. */
     suspend fun removeAudio(ctx: Context, video: Uri, out: File, onProgress: (Int) -> Unit = {}) {
         val item = EditedMediaItem.Builder(MediaItem.fromUri(video)).setRemoveAudio(true).build()

@@ -152,3 +152,62 @@ object CloudTts {
             Pcm(bos.toByteArray(), 24000, 1)
         }
 }
+
+/** ElevenLabs text-to-speech (needs an API key). Returns 24 kHz mono PCM. */
+object ElevenLabs {
+    const val MODEL_V3 = "eleven_v3"
+    const val MODEL_MULTI = "eleven_multilingual_v2"
+    const val MODEL_FLASH = "eleven_flash_v2_5"
+
+    val models = listOf(
+        VoiceOption(MODEL_V3, "v3 · 70+ languages incl. Bengali"),
+        VoiceOption(MODEL_MULTI, "Multilingual v2 · 29 languages"),
+        VoiceOption(MODEL_FLASH, "Flash v2.5 · fast, 32 languages"),
+    )
+
+    private const val BASE = "https://api.elevenlabs.io/v1"
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(3, TimeUnit.MINUTES)
+        .build()
+
+    private fun errorFor(code: Int, body: String): String {
+        if (code == 401) return "ElevenLabs rejected the API key. Check it in Settings."
+        val detail = runCatching {
+            val d = JSONObject(body).opt("detail")
+            if (d is JSONObject) d.optString("message") else d?.toString()
+        }.getOrNull()
+        return "ElevenLabs error ($code): ${detail?.takeIf { it.isNotBlank() } ?: "request failed"}"
+    }
+
+    suspend fun listVoices(key: String): List<VoiceOption> = withContext(Dispatchers.IO) {
+        val req = Request.Builder().url("$BASE/voices").header("xi-api-key", key).build()
+        client.newCall(req).await().use { r ->
+            val body = r.body?.string().orEmpty()
+            if (!r.isSuccessful) error(errorFor(r.code, body))
+            val arr = JSONObject(body).optJSONArray("voices") ?: return@use emptyList<VoiceOption>()
+            (0 until arr.length()).map {
+                val v = arr.getJSONObject(it)
+                VoiceOption(v.getString("voice_id"), v.optString("name", "Voice ${it + 1}"))
+            }
+        }
+    }
+
+    suspend fun synth(key: String, model: String, voiceId: String, text: String): Pcm =
+        withContext(Dispatchers.IO) {
+            val bos = ByteArrayOutputStream()
+            for (part in chunkText(text, 4500)) {
+                val body = JSONObject().put("text", part).put("model_id", model)
+                val req = Request.Builder()
+                    .url("$BASE/text-to-speech/$voiceId?output_format=pcm_24000")
+                    .header("xi-api-key", key)
+                    .post(body.toString().toRequestBody("application/json".toMediaType())).build()
+                client.newCall(req).await().use { r ->
+                    if (!r.isSuccessful) error(errorFor(r.code, r.body?.string().orEmpty()))
+                    bos.write(r.body!!.bytes())
+                }
+            }
+            Pcm(bos.toByteArray(), 24000, 1)
+        }
+}

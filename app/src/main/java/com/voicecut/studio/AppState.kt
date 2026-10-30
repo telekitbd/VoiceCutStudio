@@ -78,6 +78,14 @@ class AppState(context: Context) {
     var openAiKey by mutableStateOf(prefs.getString("openai_key", "") ?: "")
         private set
 
+    var elevenKey by mutableStateOf(prefs.getString("eleven_key", "") ?: "")
+        private set
+
+    fun saveElevenKey(v: String) {
+        elevenKey = v.trim()
+        prefs.edit().putString("eleven_key", elevenKey).apply()
+    }
+
     fun saveAssemblyKey(v: String) {
         assemblyKey = v.trim()
         prefs.edit().putString("aai_key", assemblyKey).apply()
@@ -89,6 +97,7 @@ class AppState(context: Context) {
     }
 
     val extractJob = JobRunner(scope)
+    val cutJob = JobRunner(scope)
     val transcribeJob = JobRunner(scope)
     val voiceJob = JobRunner(scope)
     val editJob = JobRunner(scope)
