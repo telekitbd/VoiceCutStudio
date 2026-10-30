@@ -19,7 +19,7 @@ object WavExtractor {
         ex.setDataSource(ctx, src, null)
         val idx = (0 until ex.trackCount).firstOrNull {
             ex.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
-        } ?: error("এই ফাইলে কোনো অডিও ট্র্যাক নেই")
+        } ?: error("This file has no audio track")
         ex.selectTrack(idx)
         val fmt = ex.getTrackFormat(idx)
         var sampleRate = fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE)

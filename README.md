@@ -1,21 +1,33 @@
 # VoiceCut Studio
 
-Android (Kotlin + Jetpack Compose, Dark UI) অ্যাপ:
+Android app (Kotlin + Jetpack Compose, light/dark) for working with speech in video and audio.
 
-1. **Extract** — ভিডিও থেকে অডিও (M4A/AAC অথবা WAV)
-2. **Transcript** — AssemblyAI দিয়ে টেক্সট, টাইমস্ট্যাম্প, Speaker 1/2 আলাদা করা; TXT / SRT / JSON এক্সপোর্ট
-3. **Audio** — ভিডিওর অডিও সরানো বা নতুন অডিও বসিয়ে নতুন MP4
+| Tab | What it does |
+|---|---|
+| **Extract** | Pull audio out of a video (M4A/AAC or WAV), or convert an audio file |
+| **Transcribe** | Speech to text with timestamps and speaker separation (AssemblyAI). Export TXT / SRT / JSON |
+| **Voice** | Create an audio file from a transcript (TXT / SRT / JSON / plain text) or typed text. On-device voices (free) or OpenAI cloud voices |
+| **Video** | Remove a video's audio, or replace it with another track or your generated voice-over |
 
-সব আউটপুট `Downloads/VoiceCut` ফোল্ডারে সেভ হয়।
+All output is saved to `Downloads/VoiceCut`, with Open and Share buttons.
 
-## APK বিল্ড (GitHub)
-1. এই ফোল্ডারটা একটা GitHub repo-তে push করুন
-2. **Actions → Build APK → Run workflow** (push করলেও নিজে চলবে)
-3. শেষ হলে **Artifacts** থেকে `VoiceCutStudio-debug-apk` ডাউনলোড করে ইনস্টল করুন
+## Importing files
+- Import once on any tab; the file is shared across tabs.
+- The picker accepts any file. You can also **Share** or **Open with** VoiceCut from other apps.
+- Local tools (Extract, Video) support whatever your phone can decode (MP4, MKV, WEBM, MOV, 3GP, MP3, WAV, M4A, AAC, FLAC, OGG, OPUS…).
+- Transcribe falls back to uploading the original file, and AssemblyAI accepts nearly any format.
 
-## API key
-Transcript ট্যাবে assemblyai.com থেকে পাওয়া key বসান (ফোনে সংরক্ষিত থাকে)।
+## API keys
+Open **Settings** (gear icon). Enter a key and press **Save**; it stays on the device and is excluded from backups.
+- AssemblyAI: required for Transcribe
+- OpenAI: optional, only for cloud voices
 
-## সীমাবদ্ধতা
-- MP3 আউটপুট নেই (Android-এ বিল্ট-ইন MP3 এনকোডার নেই; পরে LAME লাইব্রেরি যোগ করা যাবে)
-- Transcript-এর জন্য ইন্টারনেট লাগে
+## Build the APK (GitHub)
+1. Push this folder to a GitHub repo
+2. **Actions → Build APK → Run workflow** (also runs on push)
+3. Download `VoiceCutStudio-debug-apk` from **Artifacts** and install it
+
+## Limitations
+- No MP3 output (no built-in Android MP3 encoder)
+- Transcription and cloud voices need internet
+- Device voices must match the text language
