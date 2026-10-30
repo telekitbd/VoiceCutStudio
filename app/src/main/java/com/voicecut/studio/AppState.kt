@@ -69,6 +69,7 @@ class AppState(context: Context) {
     var media by mutableStateOf<Uri?>(null)
     var segments by mutableStateOf<List<Segment>>(emptyList())
     var scriptName by mutableStateOf("")
+    var originalSegments by mutableStateOf<List<Segment>?>(null) // kept so a translation can be undone
     var generatedAudio by mutableStateOf<Uri?>(null)
     val voiceChoices = mutableStateMapOf<String, String>()
 
@@ -98,6 +99,7 @@ class AppState(context: Context) {
 
     val extractJob = JobRunner(scope)
     val cutJob = JobRunner(scope)
+    val translateJob = JobRunner(scope)
     val transcribeJob = JobRunner(scope)
     val voiceJob = JobRunner(scope)
     val editJob = JobRunner(scope)

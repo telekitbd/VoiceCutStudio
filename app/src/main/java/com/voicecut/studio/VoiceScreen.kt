@@ -29,6 +29,8 @@ fun VoiceScreen(s: AppState) {
     var speed by rememberSaveable { mutableFloatStateOf(1f) }
     var gap by rememberSaveable { mutableFloatStateOf(400f) }
     var natural by rememberSaveable { mutableStateOf(true) }
+    var target by rememberSaveable { mutableStateOf("bn") }        // voice language: bn | hi | en
+    var trMethod by rememberSaveable { mutableStateOf("device") }  // translation: device | openai
     var importError by remember { mutableStateOf<String?>(null) }
     var deviceVoices by remember { mutableStateOf<List<VoiceOption>?>(null) }
     var elevenVoices by remember { mutableStateOf<List<VoiceOption>?>(null) }
@@ -41,6 +43,7 @@ fun VoiceScreen(s: AppState) {
                 val segs = ScriptParser.parse(name, readTextFile(ctx, uri))
                 require(segs.isNotEmpty()) { "No text found in this file" }
                 s.segments = segs
+                s.originalSegments = null
                 s.scriptName = baseName(name)
                 importError = null
             }.onFailure { importError = it.userMessage() }
@@ -61,23 +64,27 @@ fun VoiceScreen(s: AppState) {
         }
     }
 
+    LaunchedEffect(target) { if (target == "bn") elevenModel = ElevenLabs.MODEL_V3 } // only v3 speaks Bengali
+
+    val allDevice = deviceVoices.orEmpty()
+    val deviceForLang = allDevice.filter { it.lang == target }
     val voices: List<VoiceOption> = when (engine) {
         "openai" -> CloudTts.voices
         "eleven" -> elevenVoices.orEmpty()
-        else -> deviceVoices.orEmpty()
+        else -> deviceForLang.ifEmpty { allDevice }
     }
+    val noDeviceVoice = engine == "device" && deviceVoices != null && deviceForLang.isEmpty()
     val engineKey = engine
     val speakers = s.segments.map { it.speaker }.distinct()
 
     fun voiceFor(speaker: String): String? {
         s.voiceChoices["$engineKey:$speaker"]?.takeIf { id -> voices.any { it.id == id } }?.let { return it }
         if (voices.isEmpty()) return null
-        val pool = if (engine != "device") voices else voices.filter { it.label.startsWith(Locale.getDefault().displayLanguage, true) }
-            .ifEmpty { voices }
+        val pool = voices
         return pool[speakers.indexOf(speaker).coerceAtLeast(0) % pool.size].id
     }
 
-    ScreenIntro("Create audio", "Turn a transcript, or any text, into a voice-over audio file.")
+    ScreenIntro("Create audio", "Turn a transcript, or any text, into a Bengali, Hindi or English voice-over.")
 
     // 1. Script
     SectionCard("1 · Script") {
@@ -127,8 +134,59 @@ fun VoiceScreen(s: AppState) {
         }
     }
 
-    // 2. Voice
-    SectionCard("2 · Voice") {
+    // 2. Language
+    SectionCard("2 · Voice language") {
+        Text(
+            "Pick the language you want to hear. A script in another language is translated automatically before the voice is made.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Languages.targets.forEach { t ->
+                FilterChip(selected = target == t.id, onClick = { target = t.id }, label = { Text(t.label) })
+            }
+        }
+        if (s.segments.isNotEmpty()) {
+            val detected = Languages.guess(s.segments)
+            Text(
+                if (detected == target) "Your script is already in ${Languages.name(target)}."
+                else "Your script looks like ${Languages.name(detected)}. It will be translated to ${Languages.name(target)}.",
+                style = MaterialTheme.typography.labelLarge
+            )
+        }
+        Text("Translation", style = MaterialTheme.typography.labelLarge)
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            listOf("device" to "On-device (free)", "openai" to "OpenAI (better)").forEachIndexed { i, (k, label) ->
+                SegmentedButton(selected = trMethod == k, onClick = { trMethod = k }, shape = SegmentedButtonDefaults.itemShape(i, 2)) { Text(label) }
+            }
+        }
+        if (trMethod == "openai" && s.openAiKey.isBlank()) {
+            NoticeCard("OpenAI translation needs an API key.", "Settings") { s.showSettings = true }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalButton(
+                enabled = s.segments.isNotEmpty() && !s.translateJob.busy && (trMethod == "device" || s.openAiKey.isNotBlank()),
+                onClick = {
+                    val src = s.segments; val tgt = target; val method = trMethod; val key = s.openAiKey
+                    s.translateJob.start("Translating…") {
+                        val result = ScriptTranslator.translate(method, key, src, tgt) { update(it) }
+                        if (result === src) JobState.Done("The script is already in ${Languages.name(tgt)}.")
+                        else {
+                            if (s.originalSegments == null) s.originalSegments = src
+                            s.segments = result
+                            JobState.Done("Translated to ${Languages.name(tgt)}. Review the lines above and edit if needed.")
+                        }
+                    }
+                }
+            ) { Text("Translate now") }
+            if (s.originalSegments != null) OutlinedButton(onClick = {
+                s.segments = s.originalSegments ?: s.segments; s.originalSegments = null; s.translateJob.clear()
+            }) { Text("Restore original") }
+        }
+        JobStatus(s.translateJob)
+    }
+
+    // 3. Voice
+    SectionCard("3 · Voice") {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             listOf("device" to "Device", "eleven" to "ElevenLabs", "openai" to "OpenAI").forEachIndexed { i, (k, label) ->
                 SegmentedButton(selected = engine == k, onClick = { engine = k }, shape = SegmentedButtonDefaults.itemShape(i, 3)) { Text(label) }
@@ -138,7 +196,8 @@ fun VoiceScreen(s: AppState) {
             "device" -> Text(
                 if (deviceVoices == null) "Loading voices…"
                 else if (voices.isEmpty()) "No voices found. Install a text-to-speech engine in Android settings."
-                else "Free and offline. Pick voices that match the language of your text.",
+                else if (noDeviceVoice) "No ${Languages.name(target)} voice is installed on this phone. Open Android Settings → Text-to-speech → Google → install ${Languages.name(target)} voice data, or use ElevenLabs."
+                else "Free and offline.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             "eleven" -> {
@@ -178,7 +237,7 @@ fun VoiceScreen(s: AppState) {
     }
 
     // 3. Output
-    SectionCard("3 · Output") {
+    SectionCard("4 · Output") {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             listOf("wav" to "WAV", "mp3" to "MP3", "m4a" to "M4A").forEachIndexed { i, (k, label) ->
                 SegmentedButton(selected = outFmt == k, onClick = { outFmt = k }, shape = SegmentedButtonDefaults.itemShape(i, 3)) { Text(label) }
@@ -189,7 +248,7 @@ fun VoiceScreen(s: AppState) {
     val keyOk = when (engine) { "eleven" -> s.elevenKey.isNotBlank(); "openai" -> s.openAiKey.isNotBlank(); else -> true }
     val canRun = s.segments.any { it.text.isNotBlank() } && voices.isNotEmpty() && !s.voiceJob.busy && keyOk
     PrimaryButton("Generate audio", Icons.Rounded.RecordVoiceOver, canRun) {
-        val segs = s.segments.filter { it.text.isNotBlank() }
+        val tgt = target; val method = trMethod
         val chosen = speakers.associateWith { voiceFor(it) }
         val eng = engine; val sp = speed
         val openAiKey = s.openAiKey; val elKey = s.elevenKey
@@ -197,6 +256,13 @@ fun VoiceScreen(s: AppState) {
         val elModel = elevenModel
         val pause = gap.toInt(); val fmt = outFmt
         s.voiceJob.start("Preparing voices…") {
+            var segs = s.segments.filter { it.text.isNotBlank() }
+            if (Languages.guess(segs) != tgt) {
+                val translated = ScriptTranslator.translate(method, openAiKey, segs, tgt) { update(it) }
+                if (s.originalSegments == null) s.originalSegments = s.segments
+                s.segments = translated
+                segs = translated
+            }
             val stamp = System.nanoTime()
             val wav = File(ctx.cacheDir, "voice_$stamp.wav")
             val writer = PcmWriter(wav)

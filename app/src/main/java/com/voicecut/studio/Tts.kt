@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-data class VoiceOption(val id: String, val label: String)
+data class VoiceOption(val id: String, val label: String, val lang: String? = null)
 
 /** Android's built-in text-to-speech: free, offline, voices depend on the phone. */
 class DeviceTts private constructor(private val tts: TextToSpeech) {
@@ -103,7 +103,7 @@ class DeviceTts private constructor(private val tts: TextToSpeech) {
                     .map {
                         val tag = it.name.substringAfter("-x-", it.name)
                             .removeSuffix("-local").removeSuffix("-network").replace('#', ' ')
-                        VoiceOption(it.name, "${it.locale.displayName} · $tag")
+                        VoiceOption(it.name, "${it.locale.displayName} · $tag", it.locale.language)
                     }
             } finally {
                 d.shutdown()

@@ -5,8 +5,8 @@ Android app (Kotlin + Jetpack Compose, light/dark) for working with speech in vi
 | Tab | What it does |
 |---|---|
 | **Extract** | Pull audio out of a video (MP3, M4A/AAC or WAV), convert audio, and cut a section or split a long recording into parts |
-| **Transcribe** | Speech to text with timestamps and speaker separation (AssemblyAI). Export TXT / SRT / JSON |
-| **Voice** | Create an audio file from a transcript (TXT / SRT / JSON / plain text) or typed text. On-device voices (free), ElevenLabs (incl. Bengali) or OpenAI voices. Output WAV / MP3 / M4A |
+| **Transcribe** | Speech to text with timestamps and separation of any number of speakers (AssemblyAI). Choose the spoken language (Bengali / Hindi / English / auto) and the exact number of speakers. Export TXT / SRT / JSON |
+| **Voice** | Create an audio file in **Bengali, Hindi or English** from a transcript in any language (translated automatically, on-device for free or with OpenAI) (TXT / SRT / JSON / plain text) or typed text. On-device voices (free), ElevenLabs (incl. Bengali) or OpenAI voices. Output WAV / MP3 / M4A |
 | **Video** | Remove a video's audio, or replace it with another track or your generated voice-over |
 
 All output is saved to `Downloads/VoiceCut`, with Open and Share buttons.

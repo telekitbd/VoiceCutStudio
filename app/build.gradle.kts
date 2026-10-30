@@ -11,8 +11,8 @@ android {
         applicationId = "com.voicecut.studio"
         minSdk = 29
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 4
+        versionName = "1.3.0"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
     buildTypes { release { isMinifyEnabled = false } }
@@ -37,4 +37,8 @@ dependencies {
     implementation("androidx.media3:media3-transformer:1.5.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+    // On-device translation (Bengali / Hindi / English ...) and language detection, no API key needed
+    implementation("com.google.mlkit:translate:17.0.3")
+    implementation("com.google.mlkit:language-id:17.0.6")
 }

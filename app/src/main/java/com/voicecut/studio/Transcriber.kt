@@ -43,7 +43,8 @@ object Transcriber {
         apiKey: String,
         media: Uri,
         speakerLabels: Boolean,
-        detectLanguage: Boolean,
+        languageCode: String?,      // null = auto-detect
+        speakersExpected: Int?,     // null = auto
         onStatus: (String) -> Unit
     ): List<Segment> = withContext(Dispatchers.IO) {
         require(apiKey.isNotBlank()) { "Add your AssemblyAI API key in Settings first" }
@@ -63,7 +64,8 @@ object Transcriber {
         val payload = JSONObject()
             .put("audio_url", uploadUrl)
             .put("speaker_labels", speakerLabels)
-        if (detectLanguage) payload.put("language_detection", true) else payload.put("language_code", "en")
+        if (languageCode == null) payload.put("language_detection", true) else payload.put("language_code", languageCode)
+        if (speakerLabels && speakersExpected != null) payload.put("speakers_expected", speakersExpected)
         val create = Request.Builder().url("$BASE/transcript").header("authorization", apiKey)
             .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
         val id = client.newCall(create).await().use { r ->

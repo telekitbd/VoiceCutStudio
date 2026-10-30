@@ -23,7 +23,8 @@ fun TranscribeScreen(s: AppState) {
     val ctx = LocalContext.current
     val clipboard = LocalClipboardManager.current
     var speakers by rememberSaveable { mutableStateOf(true) }
-    var detect by rememberSaveable { mutableStateOf(true) }
+    var lang by rememberSaveable { mutableStateOf("auto") }
+    var count by rememberSaveable { mutableStateOf("0") }
     var optimize by rememberSaveable { mutableStateOf(true) }
     var exported by remember { mutableStateOf<Triple<String, Uri, String>?>(null) }
 
@@ -34,8 +35,11 @@ fun TranscribeScreen(s: AppState) {
     MediaPickerCard("Import a video or audio file", s.media, { s.media = it; s.transcribeJob.clear() }, { s.media = null })
 
     SectionCard("Options") {
-        SwitchRow("Separate speakers", "Label who is talking (Speaker 1, Speaker 2…)", speakers) { speakers = it }
-        SwitchRow("Auto-detect language", "Turn off to force English", detect) { detect = it }
+        SwitchRow("Separate speakers", "Label each person (Speaker 1, 2, 3…). Set the exact number for best results.", speakers) { speakers = it }
+        if (speakers) DropdownField(
+            "Number of speakers", speakerCounts, count, { count = it }
+        )
+        DropdownField("Spoken language", spokenLanguages, lang, { lang = it })
         SwitchRow("Extract audio first", "Smaller upload. Falls back to the original file if needed.", optimize) { optimize = it }
     }
 
@@ -44,7 +48,8 @@ fun TranscribeScreen(s: AppState) {
         s.media != null && s.assemblyKey.isNotBlank() && !s.transcribeJob.busy
     ) {
         val uri = s.media ?: return@PrimaryButton
-        val opt = optimize; val sp = speakers; val det = detect
+        val opt = optimize; val sp = speakers
+        val code = lang.takeIf { it != "auto" }; val expected = count.toIntOrNull()?.takeIf { it > 0 }
         exported = null
         s.transcribeJob.start("Preparing…") {
             var temp: File? = null
@@ -63,8 +68,9 @@ fun TranscribeScreen(s: AppState) {
                         f.delete() // unsupported locally: upload the original, the server accepts most formats
                     }
                 }
-                val segs = Transcriber.transcribe(ctx, s.assemblyKey, source, sp, det) { update(it) }
+                val segs = Transcriber.transcribe(ctx, s.assemblyKey, source, sp, code, expected) { update(it) }
                 s.segments = segs
+                s.originalSegments = null
                 s.scriptName = baseName(displayName(ctx, uri))
                 if (segs.isEmpty()) JobState.Failed("No speech was detected in this file.")
                 else JobState.Done("Transcript ready · ${segs.size} segments")
@@ -116,3 +122,13 @@ fun TranscribeScreen(s: AppState) {
         PrimaryButton("Create audio from this transcript", Icons.Rounded.RecordVoiceOver) { s.tab = 2 }
     }
 }
+
+private val spokenLanguages = listOf(
+    VoiceOption("auto", "Auto-detect"),
+    VoiceOption("bn", "Bengali (বাংলা)"),
+    VoiceOption("hi", "Hindi (हिन्दी)"),
+    VoiceOption("en", "English"),
+)
+
+private val speakerCounts = listOf(VoiceOption("0", "Auto-detect")) +
+    (2..10).map { VoiceOption("$it", "$it speakers") }
