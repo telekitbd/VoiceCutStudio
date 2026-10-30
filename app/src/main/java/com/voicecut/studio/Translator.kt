@@ -81,8 +81,9 @@ object ScriptTranslator {
             return segments.mapIndexed { i, seg ->
                 onStatus("Translating line ${i + 1} of ${segments.size}…")
                 if (seg.text.isBlank()) return@mapIndexed seg
-                val text = chunkText(seg.text, 800).joinToString(" ") { translator.translate(it).await() }
-                seg.copy(text = text)
+                val pieces = ArrayList<String>()
+                for (part in chunkText(seg.text, 800)) pieces += translator.translate(part).await()
+                seg.copy(text = pieces.joinToString(" "))
             }
         } finally {
             translator.close()
