@@ -23,6 +23,9 @@ Only the spoken words are read. Put the speaker before a colon and it is used as
 - A line without a label continues the previous speaker. Use the **→ Male / → Female** buttons on a line to change who says it.
 - Voices are picked by gender automatically (ElevenLabs and OpenAI know each voice's gender). Device voices: best-effort guess, and the pitch is shifted if both speakers would otherwise sound the same.
 
+## Dubbing (Voice tab → "Match the original audio")
+Import the original audio/video and your script, press **Get timing from audio** (AssemblyAI), then **Generate audio** with *Fit to original timing* on. Each line starts when the original line started; a longer translation is sped up (max 1.5×, pitch unchanged). Use the same number of script lines as spoken turns for an exact match. The original background sound is not kept: the result replaces the whole audio track.
+
 ## Importing files
 - Import once on any tab; the file is shared across tabs.
 - The picker accepts any file. You can also **Share** or **Open with** VoiceCut from other apps.

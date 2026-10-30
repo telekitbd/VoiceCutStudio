@@ -119,5 +119,6 @@ class AppState private constructor(context: Context) {
     val translateJob = JobRunner(scope, context.applicationContext)
     val transcribeJob = JobRunner(scope, context.applicationContext)
     val voiceJob = JobRunner(scope, context.applicationContext)
+    val timingJob = JobRunner(scope, context.applicationContext)
     val editJob = JobRunner(scope, context.applicationContext)
 }

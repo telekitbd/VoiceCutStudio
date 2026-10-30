@@ -32,6 +32,7 @@ fun VoiceScreen(s: AppState) {
     var target by rememberSaveable { mutableStateOf("bn") }        // voice language: bn | hi | en
     var trMethod by rememberSaveable { mutableStateOf("device") }  // translation: device | openai
     var importError by remember { mutableStateOf<String?>(null) }
+    var fit by rememberSaveable { mutableStateOf(true) }
     var deviceVoices by remember { mutableStateOf<List<VoiceOption>?>(null) }
     var elevenVoices by remember { mutableStateOf<List<VoiceOption>?>(null) }
     var elevenError by remember { mutableStateOf<String?>(null) }
@@ -162,6 +163,68 @@ fun VoiceScreen(s: AppState) {
                 }
             }
         }
+    }
+
+    // 1b. Original audio (dubbing)
+    val timed = s.segments.count { it.text.isNotBlank() && it.endMs > it.startMs }
+    val lines = s.segments.count { it.text.isNotBlank() }
+    SectionCard("Match the original audio (dubbing)") {
+        Text(
+            "Add the original audio or video. The script lines get its timing, so the new voices line up with the original. " +
+                "Male / female is taken from the audio.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        MediaPickerCard("Original audio or video", s.media, { s.media = it; s.timingJob.clear() }, { s.media = null })
+        if (s.assemblyKey.isBlank()) NoticeCard("Getting the timing needs your AssemblyAI API key.", "Settings") { s.showSettings = true }
+        FilledTonalButton(
+            enabled = s.media != null && lines > 0 && s.assemblyKey.isNotBlank() && !s.timingJob.busy,
+            onClick = {
+                val uri = s.media ?: return@FilledTonalButton
+                val script = s.segments; val key = s.assemblyKey
+                s.timingJob.start("Preparing…") {
+                    var temp: File? = null
+                    try {
+                        var source: Uri = uri
+                        val f = File(ctx.cacheDir, "tm_${System.nanoTime()}.m4a")
+                        try {
+                            update("Extracting audio…")
+                            MediaProcessor.extractAudio(ctx, uri, f) { update("Extracting audio… $it%", it / 100f) }
+                            temp = f
+                            source = Uri.fromFile(f)
+                        } catch (e: CancellationException) {
+                            f.delete(); throw e
+                        } catch (e: Exception) {
+                            f.delete()
+                        }
+                        var heard = Transcriber.transcribe(ctx, key, source, true, null, null) { update(it) }
+                        if (heard.isEmpty()) return@start JobState.Failed("No speech was detected in the audio.")
+                        heard = GenderDetector.detect(ctx, source, heard) { update(it) }
+                        val (aligned, exact) = Aligner.align(script, heard)
+                        s.originalSegments = s.originalSegments ?: script
+                        s.segments = aligned
+                        s.speakerGender.clear()
+                        if (exact) JobState.Done("Timing applied to all ${aligned.size} lines.")
+                        else JobState.Done(
+                            "The script has ${aligned.size} lines but the audio has ${heard.size} spoken turns, so the timing was spread by length. " +
+                                "For an exact match, use the same number of lines as turns."
+                        )
+                    } finally {
+                        temp?.delete()
+                    }
+                }
+            }
+        ) { Text("Get timing from audio") }
+        JobStatus(s.timingJob)
+        if (lines > 0) Text("Timing found for $timed of $lines lines.", style = MaterialTheme.typography.labelLarge)
+        SwitchRow(
+            "Fit to original timing",
+            "Each line starts when the original line started. A longer translation is sped up a little (without changing the pitch).",
+            fit
+        ) { fit = it }
+        if (fit && lines > 0 && timed < lines) Text(
+            "Some lines have no timing, so the voice will be made one line after another.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error
+        )
     }
 
     // 2. Language
@@ -305,7 +368,7 @@ fun VoiceScreen(s: AppState) {
         val openAiKey = s.openAiKey; val elKey = s.elevenKey
         val openAiModel = if (natural) CloudTts.MODEL_NATURAL else CloudTts.MODEL_STANDARD
         val elModel = elevenModel
-        val pause = gap.toInt(); val fmt = outFmt
+        val pause = gap.toInt(); val fmt = outFmt; val fitOn = fit
         s.voiceJob.start("Preparing voices…") {
             var segs = s.segments.filter { it.text.isNotBlank() }
             if (Languages.guess(segs) != tgt) {
@@ -314,6 +377,7 @@ fun VoiceScreen(s: AppState) {
                 s.segments = translated
                 segs = translated
             }
+            val synced = fitOn && segs.all { it.endMs > it.startMs }
             val stamp = System.nanoTime()
             val wav = File(ctx.cacheDir, "voice_$stamp.wav")
             val writer = PcmWriter(wav)
@@ -328,8 +392,18 @@ fun VoiceScreen(s: AppState) {
                         "eleven" -> ElevenLabs.synth(elKey, elModel, v ?: error("Pick an ElevenLabs voice"), seg.text)
                         else -> device!!.synth(ctx, seg.text, v, sp, pitches[seg.speaker] ?: 1f)
                     }
-                    writer.append(pcm)
-                    if (i < segs.size - 1) writer.silence(pause)
+                    if (synced) {
+                        // The line may use the gap up to the next line; if still too long, speed it up (max 1.5x).
+                        val nextStart = segs.getOrNull(i + 1)?.startMs
+                        val slot = maxOf(seg.endMs, (nextStart ?: seg.endMs) - 80) - seg.startMs
+                        val mono = TimeStretch.toMono(pcm)
+                        val durMs = mono.size * 1000L / pcm.sampleRate
+                        val fitted = TimeStretch.speedUp(mono, pcm.sampleRate, minOf(durMs.toDouble() / slot, 1.5))
+                        writer.appendAt(TimeStretch.toPcm(fitted, pcm.sampleRate), seg.startMs)
+                    } else {
+                        writer.append(pcm)
+                        if (i < segs.size - 1) writer.silence(pause)
+                    }
                 }
                 writer.finish()
             } catch (e: Throwable) {

@@ -68,6 +68,15 @@ class PcmWriter(private val file: File) {
         total += s.size * 2L
     }
 
+    /** Adds [p] so that it starts at [startMs] on the timeline (pads with silence; if already late, just continues). */
+    fun appendAt(p: Pcm, startMs: Long) {
+        if (p.data.isEmpty()) return
+        if (rate == 0) rate = p.sampleRate
+        val posMs = total * 1000 / (2L * rate)
+        if (startMs > posMs) silence((startMs - posMs).toInt())
+        append(p)
+    }
+
     fun silence(ms: Int) {
         if (rate == 0 || ms <= 0) return
         val n = rate * ms / 1000
